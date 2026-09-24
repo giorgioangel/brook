@@ -1,0 +1,75 @@
+cff-version: 1.2.0
+message: "If you use Brook in your work, please cite it as below."
+type: software
+title: "Brook: TEASAR skeletonization on NVIDIA GPUs"
+abstract: >-
+  Brook skeletonizes 3D label volumes, such as neuron segmentations in connectomics,
+  with the TEASAR algorithm on NVIDIA GPUs (CUDA). It is a drop-in replacement for
+  kimimaro.skeletonize: it takes the same arguments and returns osteoid.Skeleton objects.
+  Connected components, distance transforms, path tracing and, when memory allows,
+  skeleton assembly run on the GPU, for many objects at once and for batches of volumes.
+  Brook is a C++17/CUDA library with Python, C and C++ interfaces, for Linux x86-64 and
+  NVIDIA GPUs of compute capability 8.0 or newer.
+authors:
+  - family-names: Angelotti
+    given-names: Giorgio
+    orcid: "https://orcid.org/0000-0002-1878-5833"
+version: 0.1.0
+date-released: "2026-09-24"
+license: GPL-3.0-only
+repository-code: "https://github.com/giorgioangel/brook"
+url: "https://giorgioangel.github.io/brook/"
+# After the first release, add the Zenodo concept DOI (a tagged file cannot hold its own version DOI):
+# doi: "10.5281/zenodo.NNNNNNN"
+keywords:
+  - skeletonization
+  - TEASAR
+  - Kimimaro
+  - CUDA
+  - NVIDIA GPU
+  - connectomics
+  - neuroscience
+  - image segmentation
+  - centerline extraction
+  - 3D image analysis
+references:
+  - type: conference-paper
+    title: "TEASAR: Tree-structure Extraction Algorithm for Accurate and Robust Skeletons"
+    authors:
+      - family-names: Sato
+        given-names: M.
+      - family-names: Bitter
+        given-names: I.
+      - family-names: Bender
+        given-names: M. A.
+      - family-names: Kaufman
+        given-names: A. E.
+      - family-names: Nakajima
+        given-names: M.
+    collection-title: "Proceedings of the Eighth Pacific Conference on Computer Graphics and Applications"
+    conference:
+      name: "Eighth Pacific Conference on Computer Graphics and Applications"
+      city: "Hong Kong"
+    publisher:
+      name: "IEEE Computer Society"
+    start: 281
+    end: 449
+    year: 2000
+    doi: 10.1109/PCCGA.2000.883951
+  - type: software
+    title: "Kimimaro: Skeletonize densely labeled 3D image segmentations"
+    authors:
+      - family-names: Silversmith
+        given-names: William
+      - family-names: Bae
+        given-names: J. Alexander
+      - family-names: Li
+        given-names: Peter H.
+      - family-names: Wilson
+        given-names: A. M.
+    version: 3.0.0
+    date-released: 2021-09-29
+    publisher:
+      name: Zenodo
+    doi: 10.5281/zenodo.5539913
+    repository-code: "https://github.com/seung-lab/kimimaro"

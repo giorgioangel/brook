@@ -1,0 +1,46 @@
+# Brook
+
+> Brook is TEASAR skeletonization of 3D label volumes on NVIDIA GPUs (CUDA), with Python, C and C++ interfaces. Version 0.1.0, GPL-3.0-only.
+
+Requirements and limits:
+
+- Linux x86-64 is the supported platform. There are no macOS wheels, and Windows is untested.
+- NVIDIA GPU of compute capability 8.0 or newer (Ampere or later); tested on an NVIDIA RTX 4090 (sm_89).
+- NVIDIA driver that supports CUDA 12.3 or newer (R545+) for CUDA 12 builds, or CUDA 13.0 or newer (R580+) for CUDA 13 builds.
+- Output: the same objects (label IDs) as Kimimaro on 12 of the 12 benchmark datasets below. Geometry differs where equal-cost routes are broken differently (Brook's total skeleton length is 0.5% to 7.9% shorter) and around somas.
+- Streaming (volumes larger than GPU memory) does not support voxel_graph, fill_holes or fix_avocados.
+
+Install:
+
+- `python -m pip install brook-cu12` (the import package is `brook`).
+- Wheels for CPython 3.12, 3.13 and 3.14: https://github.com/giorgioangel/brook/releases
+- Other setups: build from a clone of the repository with the NVIDIA CUDA Toolkit 12.3+, CMake 3.24+ and a C++17 compiler; `python -m build --wheel`.
+
+API:
+
+- `brook.skeletonize(labels, anisotropy=..., teasar_params=..., dust_threshold=..., fix_branching=..., fix_borders=..., ...)`: kimimaro.skeletonize's arguments; returns {label: osteoid.Skeleton}. Takes NumPy arrays or CUDA arrays (CuPy, PyTorch); `output="packed_device"` keeps results on the GPU.
+- `brook.skeletonize_batch(samples, ...)`: several volumes traced together, each result equal to a separate call.
+- `brook.skeletonize_chunked(...)` and `brook.GpuPool`: overlapping chunks, several GPUs.
+- `brook.contrib.torch.Skeletonize` (forward only); `brook.contrib.igneous.engine()` for Igneous skeleton tasks (experimental).
+- `brook.device.require_gpu()`, `brook.device.build_info()`.
+- C: `brook/brook.h`; C++: `brook/brook.hpp`; CMake: `find_package(Brook CONFIG REQUIRED)`, target `Brook::brook`.
+
+Benchmarks (NVIDIA RTX 4090, Intel Core i9-14900KF; complete calls, NumPy labels in, osteoid skeletons out):
+
+- Twelve datasets (nine public EM segmentations, two X-ray CT scans of papyrus fibres, Kimimaro's 512³ benchmark volume): Brook was 9.9× to 134.3× faster than Kimimaro (median 38.5×). Kimimaro 5.8.1 with 8 workers on 8 cores, one run; Brook 0.1.0, median of three runs after one warmup.
+- Kimimaro's 512³ benchmark volume with branching correction: Brook 3.115 s; Kimimaro 5.8.1 415.1 s with 32 workers (133.3×) and 858.8 s on one core (275.7×); each time is the median of three runs after one warmup.
+- Speed depends on object shapes, parameters, memory mode and the GPU.
+
+## Docs
+
+- [Benchmarks](https://giorgioangel.github.io/brook/evidence.html): the timings and skeleton agreement above, per dataset
+- [README](https://github.com/giorgioangel/brook/blob/v0.1.0/README.md): install, quick start, performance and requirements
+- [User guide](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md): TEASAR options, GPU input and output, batches, PyTorch, large volumes, source builds, environment variables
+- [Differences from Kimimaro](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#differences-from-kimimaro): where the output differs, and why
+- [C/C++ SDK](https://github.com/giorgioangel/brook/blob/v0.1.0/cpp/README.md): C and C++ API, CMake and pkg-config
+- [Changelog](https://github.com/giorgioangel/brook/blob/v0.1.0/CHANGELOG.md)
+- [Citation](https://github.com/giorgioangel/brook/blob/v0.1.0/CITATION.cff)
+
+## Optional
+
+- [Full text](https://giorgioangel.github.io/brook/llms-full.txt): README, user guide and SDK guide in one file

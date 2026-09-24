@@ -1,0 +1,126 @@
+[project]
+# Release builds rename this to brook-cu12 / brook-cu13 (release.yml); the import package is always brook.
+name = "brook"
+dynamic = ["version"]
+description = "TEASAR skeletonization of 3D label volumes on NVIDIA GPUs"
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE", "NOTICE", "cpp/licenses/*.txt", "cpp/licenses/*-source.json", "cpp/licenses/xs3d/*"]
+keywords = [
+    "skeletonization", "skeletonize", "TEASAR", "Kimimaro", "CUDA", "NVIDIA", "GPU", "connectomics",
+    "neuroscience", "segmentation", "centerline extraction", "medial axis", "3D image analysis",
+    "electron microscopy",
+]
+authors = [
+    { name = "Giorgio Angelotti", email = "76100950+giorgioangel@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: C",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Typing :: Typed",
+]
+dependencies = [
+    "numpy>=2.4.6,<3",
+    "osteoid>=0.7.2",
+    # fastremap (through osteoid) imports packaging from 1.20.0 on without declaring it.
+    "packaging",
+    "tqdm>=4.67.3",
+]
+
+[project.urls]
+Homepage = "https://giorgioangel.github.io/brook/"
+Documentation = "https://github.com/giorgioangel/brook#readme"
+Source = "https://github.com/giorgioangel/brook"
+Issues = "https://github.com/giorgioangel/brook/issues"
+Changelog = "https://github.com/giorgioangel/brook/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+crackle = ["crackle-codec>=0.42.0"]
+igneous = ["igneous-pipeline>=4.37.0"]
+profile = ["nvtx>=0.2.13"]
+
+[build-system]
+requires = ["scikit-build-core>=1.0.3", "pybind11>=3.0.4"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.24"
+cmake.build-type = "Release"
+build-dir = "build/wheel/{wheel_tag}"
+build.tool-args = ["-j4"]
+wheel.packages = []
+wheel.reproducible = true
+install.components = ["Python"]
+# The build inputs, plus the scripts that control the release build (GPL corresponding source).
+sdist.inclusion-mode = "explicit"
+sdist.include = [
+    "/CMakeLists.txt", "/pyproject.toml", "/README.md", "/LICENSE", "/NOTICE", "/CHANGELOG.md", "/CITATION.cff",
+    "/cpp/**", "/src/brook/**/*.py", "/src/brook/**/*.pyi", "/src/brook/py.typed", "/tests/python/*.py",
+    "/docs/**", "/examples/*.py",
+    "/tools/build_manylinux.sh", "/.github/workflows/release.yml", "/uv.lock",
+]
+
+# One version for the Python package, the C/C++ SDK and the library (brook_version()).
+[[tool.dynamic-metadata]]
+provider = "scikit_build_core.metadata.regex"
+field = "version"
+input = "CMakeLists.txt"
+regex = 'project\(Brook VERSION (?P<value>[0-9.]+)'
+
+[tool.scikit-build.cmake.define]
+BROOK_BUILD_PYTHON = true
+BROOK_BUILD_TESTS = false
+BROOK_BUNDLE_CUDA_RUNTIME = true
+
+[dependency-groups]
+dev = ["pytest>=9", "ruff>=0.16.8", "build>=1.6"]
+# Exact tool versions for CI and the release build: installed hash-checked with
+# `uv export --locked --only-group ci --no-emit-project`, then pip --require-hashes.
+ci = [
+    "build==1.6.1",
+    "scikit-build-core==1.0.3",
+    "pybind11==3.1.0",
+    "cmake==4.4.3",
+    "ninja==1.13.2",
+    "twine==7.0.0",
+    "readme-renderer[md]==46.0",
+    "pytest==9.1.1",
+    "ruff==0.16.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "-ra -q"
+markers = ["gpu: needs an NVIDIA GPU and the CUDA extension"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",   # line length: long kernel-argument lines are clearer unwrapped
+    "E702",   # `a = ..; b = ..` pairs for symmetric buffers in the kernel drivers
+    "E731",   # lambda assignment (used for tiny local helpers, e.g. step_weights)
+    "B905",   # zip() strict= (numpy-shaped iterables, lengths asserted elsewhere)
+    "UP031",  # % formatting is fine in a few report strings
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["brook"]

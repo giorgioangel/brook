@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/@BROOK_PC_PREFIX_RELATIVE@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: Brook
+Description: TEASAR skeletonization on NVIDIA GPUs
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lbrook
+Cflags: -I${includedir}

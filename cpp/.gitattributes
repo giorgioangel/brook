@@ -1,0 +1,5 @@
+# Keep these pinned upstream files byte-for-byte, including their whitespace.
+src/third_party/pykdtree_core.c -whitespace
+licenses/OpenBLAS.txt -whitespace
+licenses/OpenBLAS-getf2.txt -whitespace
+third_party/xs3d/** -whitespace

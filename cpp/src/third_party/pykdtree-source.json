@@ -1,0 +1,10 @@
+{
+  "project": "pykdtree",
+  "version": "1.4.3",
+  "source_archive": "https://files.pythonhosted.org/packages/12/8d/ab32411372d016404e8cf0a30ff955c4420717a88c9df4ab0bd3dc4740be/pykdtree-1.4.3.tar.gz",
+  "source_file": "pykdtree/_kdtree_core.c",
+  "sha256": "73dfbf700d854ee4cd46917ce06181a78deef564600c2ebe31dfb749842e1583",
+  "local_file": "pykdtree_core.c",
+  "changes": "none",
+  "license": "LGPL-3.0-or-later; cpp/licenses/PyKDTree.txt"
+}

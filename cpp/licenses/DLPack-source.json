@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/dmlc/dlpack",
+  "tag": "v1.2",
+  "revision": "93c8f2a3c774b84af6f652b1992c48164fae60fc",
+  "sha256": {
+    "include/dlpack/dlpack.h": "2f755aa1df9855a1c8744d570bd87d7506d2f46493180a64701aac395d12e5d9",
+    "LICENSE": "3e8f6bc39276a586d60c8c5aaece2ff989262181cf2b3d2a128db58f97a9300c"
+  }
+}

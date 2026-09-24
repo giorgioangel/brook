@@ -1,0 +1,27 @@
+name: Bug report
+description: Brook fails, crashes or returns a wrong result.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected and what happened instead, with the full error message.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Minimal example
+      description: The smallest script that shows the problem, with synthetic data where possible.
+      render: python
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        The output of
+        `python -c "import brook, brook.device as d; print(brook.__version__); print(d.build_info()); print(d.device_properties())"`,
+        the Linux distribution, the Python version and how Brook was installed.
+    validations:
+      required: true

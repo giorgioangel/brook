@@ -1,0 +1,402 @@
+name: Release
+
+# Manual only: Actions -> Release -> Run workflow.
+# mode=dry-run (any branch or tag) builds the sdist and the manylinux_2_28 wheels for CPython 3.12,
+# 3.13 and 3.14 with tools/build_manylinux.sh, runs every check (versions, placeholders, twine check
+# --strict, auditwheel, the cuobjdump lists, the release notes) and tests each wheel on CPU in a
+# container without a CUDA toolkit. It publishes nothing and creates no release.
+# mode=release (from the tag vX.Y.Z only) runs the same jobs, opens a DRAFT GitHub release with the
+# files, SHA256SUMS and build provenance attestations, uploads the wheels to TestPyPI, installs them
+# back from TestPyPI, checks them byte for byte against this run's files and tests them, then uploads
+# the same files to PyPI. Each upload waits for approval in its GitHub environment.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run: build and check only. release: from the tag; draft release, TestPyPI, then PyPI"
+        type: choice
+        options: [dry-run, release]
+        default: dry-run
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sdist:
+    name: sdist ${{ matrix.variant.dist }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        variant:
+          - { dist: brook-cu12, cuda: "12.8" }
+          # - { dist: brook-cu13, cuda: "13.0" }
+    # manylinux_2_28: AlmaLinux 8, glibc 2.28, CPython 3.12-3.14, auditwheel. Pinned by digest.
+    container: quay.io/pypa/manylinux_2_28_x86_64@sha256:531d7aa844bbb0c131d4ab011d3db741c4abc8d498cd5ccc86121046f62303b4
+    steps:
+      - name: Check the ref
+        env:
+          MODE: ${{ inputs.mode }}
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A release runs from its tag and nowhere else; a dry run runs from any ref.
+          if [ "$MODE" = release ]; then
+            [ "$REF_TYPE" = tag ] || { echo "::error::mode=release runs from a tag; use mode=dry-run on a branch"; exit 1; }
+            [[ "$TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
+          elif [ "$MODE" != dry-run ]; then
+            echo "::error::unknown mode: $MODE"; exit 1
+          fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Check that every version string matches
+        env:
+          MODE: ${{ inputs.mode }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          v=$(sed -nE 's/^project\(Brook VERSION ([0-9]+[.][0-9]+[.][0-9]+) .*/\1/p' CMakeLists.txt)
+          fail() { echo "::error::$1"; exit 1; }
+          [ -n "$v" ] || fail "no version in CMakeLists.txt"
+          # A release compares the tag; a dry run checks the files against CMakeLists.txt only.
+          [ "$MODE" != release ] || [ "$TAG" = "v$v" ] || fail "tag $TAG, CMakeLists.txt version $v"
+          grep -qxF "__version__ = \"$v\"" src/brook/__init__.py || fail "src/brook/__init__.py is not $v"
+          grep -qxF "version: $v" CITATION.cff || fail "CITATION.cff is not $v"
+          d=$(sed -nE "s/^## ${v//./[.]} - ([0-9]{4}-[0-9]{2}-[0-9]{2})$/\1/p" CHANGELOG.md)
+          if [ -z "$d" ] || [ "$(date -u -d "$d" +%F 2>/dev/null)" != "$d" ]; then
+            fail "CHANGELOG.md has no '## $v - <date>' heading with a real date"
+          fi
+          grep -qxF 'dynamic = ["version"]' pyproject.toml || grep -qxF "version = \"$v\"" pyproject.toml \
+            || fail "pyproject.toml is not $v"
+          grep -qF "version = {$v}," README.md || fail "the BibTeX version in README.md is not $v"
+          # The README is the PyPI description: its tag-pinned links must point at this version.
+          stale=$(grep -oE 'blob/v[0-9]+[.][0-9]+[.][0-9]+/' README.md | sort -u | grep -vxF "blob/v$v/" || true)
+          [ -z "$stale" ] || fail "README.md links to another tag: $stale"
+      - name: Check that no placeholder remains
+        run: |
+          paths=()
+          for p in README.md pyproject.toml CITATION.cff CHANGELOG.md NOTICE docs cpp/README.md CONTRIBUTING.md \
+                   SECURITY.md src cpp/include; do
+            [ -e "$p" ] && paths+=("$p")
+          done
+          rc=0
+          grep -rnE 'OWNER/REPO|OWNER[.]github[.]io|YYYY-MM-DD' \
+            "${paths[@]}" || rc=$?
+          [ "$rc" = 1 ] || { echo "::error::placeholders remain (see above) or grep failed"; exit 1; }
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.18"
+          enable-cache: false
+      - name: Build and check the sdist
+        env:
+          DIST: ${{ matrix.variant.dist }}
+          CUDA: ${{ matrix.variant.cuda }}
+        run: tools/build_manylinux.sh sdist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sdist-${{ matrix.variant.dist }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  # One job per variant builds the wheels for all three CPythons, one after the other: the first
+  # compiles libbrook and brook_xs3d, the others take the same objects from the job's ccache.
+  wheel:
+    name: wheels ${{ matrix.variant.dist }}
+    needs: sdist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        variant:
+          - { dist: brook-cu12, cuda: "12.8" }
+          # - { dist: brook-cu13, cuda: "13.0" }
+    container: quay.io/pypa/manylinux_2_28_x86_64@sha256:531d7aa844bbb0c131d4ab011d3db741c4abc8d498cd5ccc86121046f62303b4
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.18"
+          enable-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: sdist-${{ matrix.variant.dist }}
+          path: sdist
+      # Builds each wheel from the sdist, repairs it to manylinux_2_28, then runs twine check
+      # --strict, auditwheel show and the cuobjdump SASS and PTX lists.
+      - name: Build the wheels from the sdist
+        env:
+          DIST: ${{ matrix.variant.dist }}
+          CUDA: ${{ matrix.variant.cuda }}
+          PYTHONS: cp312-cp312 cp313-cp313 cp314-cp314
+          JOBS: "4"
+        run: tools/build_manylinux.sh wheel sdist/*.tar.gz
+      # One artifact per wheel, for the per-CPython test jobs.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.variant.dist }}-3.12
+          path: dist/*-cp312-cp312-*.whl
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.variant.dist }}-3.13
+          path: dist/*-cp313-cp313-*.whl
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-${{ matrix.variant.dist }}-3.14
+          path: dist/*-cp314-cp314-*.whl
+          if-no-files-found: error
+
+  wheel-test:
+    name: wheel test ${{ matrix.variant.dist }} ${{ matrix.python }}
+    needs: wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        variant:
+          - { dist: brook-cu12, cuda: "12.8" }
+          # - { dist: brook-cu13, cuda: "13.0" }
+        python: ["3.12", "3.13", "3.14"]
+    # glibc 2.28 and no CUDA toolkit: the wheel must bring its own CUDA runtime.
+    container: almalinux:8@sha256:9f355ae942d6a6c0561f0771dc053a2cfae9580fc45fa4252756db7c7e80c09f
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      BROOK_TEST_EXPECT_BUNDLED_CUDART: "1"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.18"
+          enable-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheel-${{ matrix.variant.dist }}-${{ matrix.python }}
+          path: wheel
+      - name: Install the wheel alone, then run the CPU tests
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: |
+          uv venv --managed-python --python "$PYTHON_VERSION" build/test
+          # The wheel alone first: the test tools' dependencies must not hide a missing one.
+          uv pip install --python build/test/bin/python wheel/*.whl
+          build/test/bin/python -I -c "import brook, osteoid, tqdm"
+          uv export --locked --only-group ci --no-emit-project --quiet -o build/ci.txt
+          uv pip install --python build/test/bin/python --require-hashes -r build/ci.txt
+          build/test/bin/python -I -m pytest tests/python -m "not gpu"
+
+  release-notes:
+    name: release notes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Write the release notes
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'EOF'
+          import os
+          import pathlib
+          import re
+          import sys
+
+          # The sdist job checked that a release's tag is v<CMakeLists.txt version>.
+          cmake = pathlib.Path("CMakeLists.txt").read_text(encoding="utf-8")
+          version = re.search(r"^project\(Brook VERSION ([0-9]+\.[0-9]+\.[0-9]+) ", cmake, re.M).group(1)
+          tag, repository = f"v{version}", os.environ["REPOSITORY"]
+          changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          # From the "## X - date" heading to the next "## " heading.
+          match = re.search(rf"^## {re.escape(version)} - [0-9-]+\n(.*?)(?=^## |\Z)", changelog, re.M | re.S)
+          section = match.group(1).strip() if match else ""
+          if not section:
+              sys.exit(f"CHANGELOG.md has no entries under '## {version} - <date>'")
+          notes = pathlib.Path(".github/release-notes.md").read_text(encoding="utf-8")
+          for key, value in {"REPOSITORY": repository, "TAG": tag, "VERSION": version, "CHANGELOG": section}.items():
+              notes = notes.replace("{{" + key + "}}", value)
+          if "{{" in notes:
+              sys.exit("an unfilled {{...}} placeholder remains in the release notes")
+          pathlib.Path("build").mkdir(exist_ok=True)
+          pathlib.Path("build/RELEASE_NOTES.md").write_text(notes, encoding="utf-8")
+          EOF
+          cat build/RELEASE_NOTES.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: build/RELEASE_NOTES.md
+          if-no-files-found: error
+
+  # Everything below runs for mode=release only, and the sdist job has already failed a release
+  # started from anything but a vX.Y.Z tag. The files are this run's artifacts throughout.
+  draft-release:
+    name: draft GitHub release
+    needs: [sdist, wheel-test, release-notes]
+    if: inputs.mode == 'release' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write     # create the draft release
+      id-token: write     # sign the build provenance attestations (Sigstore, through OIDC)
+      attestations: write # store the attestations in this repository
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: sdist-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-notes
+          path: build
+      # SHA256SUMS goes to the GitHub release only; dist/ holds distributions only.
+      - name: Write SHA256SUMS
+        run: |
+          (cd dist && sha256sum -- *) > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/* SHA256SUMS --draft --verify-tag \
+            --title "Brook $TAG: TEASAR skeletonization on NVIDIA GPUs" --notes-file build/RELEASE_NOTES.md
+
+  # Wheels only: the sdist stays on the GitHub release. Both uploads carry PEP 740 attestations.
+  testpypi:
+    name: upload to TestPyPI
+    needs: draft-release
+    if: inputs.mode == 'release' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: testpypi # required reviewer; deployments from v* tags only
+      url: https://test.pypi.org/p/brook-cu12
+    permissions:
+      id-token: write # PyPI Trusted Publishing (OIDC); no stored token
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # Lets a re-run of this job pass. TestPyPI never replaces a file; if it holds a file of
+          # the same name with other bytes, testpypi-test fails and nothing reaches PyPI.
+          skip-existing: true
+
+  testpypi-test:
+    name: test from TestPyPI ${{ matrix.variant.dist }} ${{ matrix.python }}
+    needs: testpypi
+    if: inputs.mode == 'release' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        variant:
+          - { dist: brook-cu12, cuda: "12.8" }
+          # - { dist: brook-cu13, cuda: "13.0" }
+        python: ["3.12", "3.13", "3.14"]
+    container: almalinux:8@sha256:9f355ae942d6a6c0561f0771dc053a2cfae9580fc45fa4252756db7c7e80c09f
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      BROOK_TEST_EXPECT_BUNDLED_CUDART: "1"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.18"
+          enable-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: wheel-${{ matrix.variant.dist }}-${{ matrix.python }}
+          path: artifact
+      - name: Download the wheel from TestPyPI and compare it with this run's
+        env:
+          DIST: ${{ matrix.variant.dist }}
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: |
+          uv venv --seed --managed-python --python "$PYTHON_VERSION" build/test
+          files=(artifact/*.whl)
+          [ "${#files[@]}" = 1 ] || { echo "::error::expected one wheel, got ${files[*]}"; exit 1; }
+          name=$(basename "${files[0]}")
+          version=$(cut -d- -f2 <<< "$name")
+          sum=$(sha256sum "${files[0]}" | cut -d' ' -f1)
+          # pip refuses any file whose sha256 is not this run's.
+          echo "$DIST==$version --hash=sha256:$sum" > build/pin.txt
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            # A new upload can take a few minutes to appear in TestPyPI's index.
+            build/test/bin/python -m pip download --no-deps --no-cache-dir --only-binary :all: \
+              --index-url https://test.pypi.org/simple/ -r build/pin.txt -d testpypi && break
+            [ "$attempt" != 10 ] || { echo "::error::$name not available from TestPyPI with sha256 $sum"; exit 1; }
+            sleep 30
+          done
+          [ "$(ls testpypi)" = "$name" ] || { echo "::error::TestPyPI served $(ls testpypi), expected $name"; exit 1; }
+          echo "$sum  testpypi/$name" | sha256sum -c -
+      - name: Install the TestPyPI wheel alone, then run the CPU tests
+        run: |
+          uv pip install --python build/test/bin/python testpypi/*.whl
+          build/test/bin/python -I -c "import brook, osteoid, tqdm"
+          uv export --locked --only-group ci --no-emit-project --quiet -o build/ci.txt
+          uv pip install --python build/test/bin/python --require-hashes -r build/ci.txt
+          build/test/bin/python -I -m pytest tests/python -m "not gpu"
+
+  # The same files as TestPyPI: this run's wheel artifacts, which testpypi-test matched byte for
+  # byte against TestPyPI's copies. Approve only after the GPU tests have passed locally.
+  pypi:
+    name: upload to PyPI
+    needs: testpypi-test
+    if: inputs.mode == 'release' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: pypi # required reviewer; deployments from v* tags only
+      url: https://pypi.org/p/brook-cu12
+    permissions:
+      id-token: write # PyPI Trusted Publishing (OIDC); no stored token
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

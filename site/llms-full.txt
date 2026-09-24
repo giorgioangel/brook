@@ -1,0 +1,608 @@
+# Brook: full documentation
+
+> TEASAR skeletonization of 3D label volumes on NVIDIA GPUs (CUDA), with Python, C and C++ interfaces.
+
+---
+
+Source: https://github.com/giorgioangel/brook/blob/v0.1.0/README.md
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/giorgioangel/brook/v0.1.0/site/assets/favicon.svg" width="88" alt="Brook logo">
+</p>
+
+<h1 align="center">Brook</h1>
+
+<p align="center"><strong>TEASAR skeletonization of 3D label volumes on NVIDIA GPUs</strong></p>
+
+<p align="center">
+  <a href="https://github.com/giorgioangel/brook/blob/v0.1.0/LICENSE"><img alt="License: GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-blue"></a>
+  <img alt="Python 3.12 | 3.13 | 3.14" src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-3776AB?logo=python&amp;logoColor=white">
+  <img alt="CUDA 12.3+" src="https://img.shields.io/badge/CUDA-12.3%2B-76B900?logo=nvidia&amp;logoColor=white">
+  <img alt="Platform: Linux x86-64" src="https://img.shields.io/badge/platform-Linux%20x86--64-lightgrey?logo=linux&amp;logoColor=white">
+  <img alt="NVIDIA GPU: compute capability 8.0+ (Ampere or newer)" src="https://img.shields.io/badge/NVIDIA%20GPU-CC%208.0%2B%20(Ampere%20or%20newer)-76B900?logo=nvidia&amp;logoColor=white">
+</p>
+
+<p align="center">
+  <a href="https://giorgioangel.github.io/brook/">Website</a> ·
+  <a href="https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md">User guide</a> ·
+  <a href="https://giorgioangel.github.io/brook/evidence.html">Benchmarks</a> ·
+  <a href="https://github.com/giorgioangel/brook/blob/v0.1.0/cpp/README.md">C/C++ SDK</a> ·
+  <a href="https://github.com/giorgioangel/brook/blob/v0.1.0/CHANGELOG.md">Changelog</a>
+</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/giorgioangel/brook/v0.1.0/site/assets/figures/hero-D.svg" width="760" alt="TEASAR on CPU cores traces one path of one object at a time. On the NVIDIA GPU, Brook traces the next path of many objects at once, in a loop that runs as one CUDA graph; each path stops at first contact with the skeleton, and long objects draft several paths in parallel.">
+  <br>
+  <sub>Schematic, not to scale.</sub>
+</p>
+
+Brook turns a 3D label volume, such as a neuron segmentation in connectomics, into
+one skeleton per object: vertices, edges and a radius at each vertex. Connected components,
+distance transforms, path tracing and, when memory allows, skeleton assembly run on the NVIDIA
+GPU. It is a C++17/CUDA library with Python, C and C++ interfaces.
+
+`brook.skeletonize` takes the arguments of `kimimaro.skeletonize` and returns
+`osteoid.Skeleton` objects ([Kimimaro compatibility](https://github.com/giorgioangel/brook/blob/v0.1.0/README.md#kimimaro-compatibility)). On twelve
+datasets, Brook on an NVIDIA RTX 4090 was 9.9× to 134× faster than Kimimaro 5.8.1 with 8
+workers on 8 cores ([Performance](https://github.com/giorgioangel/brook/blob/v0.1.0/README.md#performance)).
+
+**Platform:** Linux x86-64; an NVIDIA GPU of compute capability 8.0 or newer (Ampere or
+later); an NVIDIA driver that supports CUDA 12.3 or newer. There are no macOS wheels, and
+Windows is untested.
+
+## Install
+
+```sh
+python -m pip install brook-cu12
+```
+
+Wheels cover Python 3.12 to 3.14 on Linux x86-64 and include the CUDA runtime, so you need
+only an NVIDIA GPU and driver ([Requirements](https://github.com/giorgioangel/brook/blob/v0.1.0/README.md#requirements)). For anything else,
+[build from source](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#build-from-source).
+
+Install one Brook package per environment; the import name is `brook`.
+
+Runtime dependencies are NumPy, osteoid, tqdm and packaging (which fastremap, used by
+osteoid, imports without declaring it). Optional extras: `"brook-cu12[igneous]"`
+(experimental), `[crackle]`, `[profile]`.
+
+## Quick start
+
+```python
+import numpy as np
+import brook
+
+labels = np.load("labels.npy")  # 3D integer labels; 0 is background
+
+# anisotropy: the voxel size, for example in nanometres
+skeletons = brook.skeletonize(labels, anisotropy=(16, 16, 40))
+
+for label, skeleton in skeletons.items():  # {label: osteoid.Skeleton}
+    print(label, len(skeleton.vertices), skeleton.cable_length())
+```
+
+`labels` can also be a CuPy array or a PyTorch CUDA tensor, read without a copy to host memory.
+Several volumes go through in one call:
+
+```python
+result = brook.skeletonize_batch(volumes, anisotropy=(4, 4, 4))  # results stay on the GPU
+first = result[0].to_skeletons()  # sample 0 as {label: osteoid.Skeleton}
+```
+
+[`examples/quickstart.py`](https://github.com/giorgioangel/brook/blob/v0.1.0/examples/quickstart.py)
+runs without a data file. The [user guide](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md)
+covers TEASAR options, GPU input and output, batches, PyTorch, large volumes, Igneous and
+environment variables.
+
+## Features
+
+- **Kimimaro's interface:** the arguments of `kimimaro.skeletonize`, and `osteoid.Skeleton`
+  objects.
+- **GPU in, GPU out:** reads CuPy arrays and PyTorch CUDA tensors in GPU memory; packed results
+  can stay there (CUDA array interface, DLPack).
+- **Batches:** `skeletonize_batch` traces many independent volumes in one call, with the same
+  result as separate calls.
+- **PyTorch:** `brook.contrib.torch` has forward-only functions and an `nn.Module`.
+- **Large volumes:** streaming through GPU memory, or overlapping chunks on one or more GPUs.
+- **Igneous (experimental):** an integration that runs existing Igneous `SkeletonTask`s on Brook.
+- **C and C++:** a CUDA/C++17 library with C and C++ headers, a CMake package and pkg-config
+  ([SDK](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#c-and-c)).
+
+## Performance
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/giorgioangel/brook/v0.1.0/site/assets/social-card.png" width="760" alt="Seconds per volume on twelve datasets, log scale. Brook on an NVIDIA RTX 4090 against Kimimaro 5.8.1 on 8 CPU cores; speedups from 9.9× (scroll fibres, 8 µm) to 134.3× (Kimimaro benchmark volume).">
+</p>
+
+**9.9× to 134× faster (median 38.5×), with the same labels in every case.**
+
+- **Data:** nine public electron-microscopy segmentations, two X-ray CT scans of papyrus fibres
+  from a Herculaneum scroll, and Kimimaro's 512³ benchmark volume.
+- **Brook 0.1.0:** one NVIDIA RTX 4090; median of three runs after one warmup.
+- **Kimimaro 5.8.1:** 8 workers on 8 cores of an Intel Core i9-14900KF; one run each.
+
+With 32 workers on the same CPU, the 512³ volume (branching correction on) took 415.1 s in
+Kimimaro and 3.115 s in Brook, 133.3× (medians of three complete calls after one warmup).
+Speed depends on object shapes, parameters, memory mode and the GPU. These runs use the
+in-core path; streaming needs less GPU memory and was not benchmarked.
+[Full benchmarks](https://giorgioangel.github.io/brook/evidence.html) ·
+[how to reproduce](https://github.com/giorgioangel/brook/blob/v0.1.0/examples/benchmark.py)
+
+## Kimimaro compatibility
+
+Brook implements the TEASAR variant of [Kimimaro](https://github.com/seung-lab/kimimaro) and keeps
+its interface, so existing code changes one call:
+
+```diff
+- skeletons = kimimaro.skeletonize(labels, params, anisotropy=(16, 16, 40))
++ skeletons = brook.skeletonize(labels, params, anisotropy=(16, 16, 40))
+```
+
+On the tested volumes Brook returns the same objects (label IDs) as Kimimaro 5.8.1. The
+geometry is close but not identical, mainly for two reasons:
+
+- **Equal-cost routes.** Where several paths have the same cost to float32 precision,
+  Brook and Kimimaro can choose different ones. Brook tends to take straight axial
+  steps where Kimimaro's order alternates between slices. Total cable length was 0.5%
+  to 7.9% shorter in Brook across the twelve datasets under [Performance](https://github.com/giorgioangel/brook/blob/v0.1.0/README.md#performance);
+  the largest differences were on the two scroll-fibre scans.
+- **Soma branches.** For objects with a soma, Brook trims paths inside the cell body
+  and attaches each branch to the soma root. Kimimaro 5.8.1 keeps more of those paths,
+  so its skeleton of such an object can differ in shape and connectivity.
+
+`parallel` is accepted and ignored; `brook.GpuPool` uses several GPUs. Details, including
+`fill_holes`, `fix_avocados` and voxel graphs:
+[user guide](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#differences-from-kimimaro).
+
+## Requirements
+
+| Component | Requirement |
+| :--- | :--- |
+| OS | Linux x86-64 (glibc 2.28 or newer for the wheels). There are no macOS wheels, and Windows is untested. |
+| GPU | NVIDIA, compute capability 8.0 or newer (Ampere or later). Tested on an NVIDIA RTX 4090 (`sm_89`) and an NVIDIA H100 (`sm_90`). |
+| Driver | R545 or newer, or R570 or newer where the driver JIT-compiles the PTX (a GPU without machine code in the wheel). Tested with drivers R570 and R615. |
+| Python | CPython 3.12, 3.13 or 3.14 for the wheels; Python 3.12 or newer for a source build. Dependencies: NumPy, osteoid, tqdm, packaging. |
+| CUDA | The wheels bundle the CUDA 12.8 runtime. A source build needs the NVIDIA CUDA Toolkit 12.3 or newer. |
+
+Before it first uses a GPU, Brook checks its compute capability, the driver version and
+whether the build has GPU code the driver can load; on an unsupported setup it raises
+`brook.device.CudaError` that names the problem and the fix
+([startup check](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#startup-check)).
+
+## Citation
+
+If you use Brook in your work, please cite it (GitHub's "Cite this repository" button reads
+[CITATION.cff](https://github.com/giorgioangel/brook/blob/v0.1.0/CITATION.cff)):
+
+```bibtex
+@software{brook,
+  author = {Angelotti, Giorgio},
+  title = {Brook: TEASAR skeletonization on NVIDIA GPUs},
+  version = {0.1.0},
+  year = {2026},
+  license = {GPL-3.0-only},
+  url = {https://github.com/giorgioangel/brook},
+}
+```
+
+Brook implements the TEASAR algorithm [1] as Kimimaro does [2]:
+
+1. M. Sato, I. Bitter, M. A. Bender, A. E. Kaufman and M. Nakajima. "TEASAR: tree-structure
+   extraction algorithm for accurate and robust skeletons". In *Proceedings of the Eighth
+   Pacific Conference on Computer Graphics and Applications*, Hong Kong, pp. 281–449. IEEE
+   Computer Society, 2000.
+   doi:[10.1109/PCCGA.2000.883951](https://doi.org/10.1109/PCCGA.2000.883951)
+2. W. Silversmith, J. A. Bae, P. H. Li and A. M. Wilson. *Kimimaro: Skeletonize densely
+   labeled 3D image segmentations*, version 3.0.0. Zenodo, 2021.
+   doi:[10.5281/zenodo.5539913](https://doi.org/10.5281/zenodo.5539913)
+
+## License and contributing
+
+Brook is authored by Giorgio Angelotti and licensed under GPL-3.0-only. Third-party
+components keep their own licenses; see
+[NOTICE](https://github.com/giorgioangel/brook/blob/v0.1.0/NOTICE). Wheels include NVIDIA's CUDA
+runtime, which is licensed under the NVIDIA CUDA EULA
+(`brook/licenses/nvidia/CUDA-EULA.txt`), not the GPL.
+
+Report bugs and ask questions in the [issue tracker](https://github.com/giorgioangel/brook/issues).
+See [CONTRIBUTING.md](https://github.com/giorgioangel/brook/blob/v0.1.0/CONTRIBUTING.md) for
+contributions and [SECURITY.md](https://github.com/giorgioangel/brook/blob/v0.1.0/SECURITY.md) for
+reporting security issues.
+
+---
+
+Source: https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md
+
+# Brook user guide
+
+The [README](https://github.com/giorgioangel/brook/blob/v0.1.0/README.md) covers installation, a first call and the requirements. This guide
+covers the TEASAR options, GPU input and output, batches, PyTorch, large volumes, Igneous,
+source builds, the startup check, the C and C++ SDK, the stable API, environment variables,
+the test suites, and where the output differs from Kimimaro.
+
+- [TEASAR options](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#teasar-options)
+- [Differences from Kimimaro](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#differences-from-kimimaro)
+- [GPU input and output](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#gpu-input-and-output)
+- [Batches](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#batches)
+- [PyTorch](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#pytorch)
+- [Large volumes](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#large-volumes)
+- [Igneous](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#igneous)
+- [Build from source](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#build-from-source)
+- [Startup check](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#startup-check)
+- [C and C++](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#c-and-c)
+- [API stability](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#api-stability)
+- [Environment variables](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#environment-variables)
+- [Testing](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#testing)
+
+## TEASAR options
+
+`brook.skeletonize` takes the arguments of `kimimaro.skeletonize`. A call with explicit TEASAR
+parameters and postprocessing:
+
+```python
+import numpy as np
+import brook
+
+labels = np.load("labels.npy")  # 3D integer labels; 0 is background
+skeletons = brook.skeletonize(
+    labels,
+    anisotropy=(16, 16, 40),
+    teasar_params={
+        "scale": 1.5, "const": 300,
+        "pdrf_scale": 100000, "pdrf_exponent": 4,
+        "soma_acceptance_threshold": 3500, "soma_detection_threshold": 750,
+        "soma_invalidation_const": 300, "soma_invalidation_scale": 2,
+    },
+    dust_threshold=1000,
+    fix_branching=True,
+    fix_borders=True,
+    progress=False,
+)
+
+for label, skeleton in skeletons.items():
+    vertices, edges = skeleton.vertices, skeleton.edges
+```
+
+As in Kimimaro, keys left out of `teasar_params` take the defaults of `kimimaro.trace`
+(for example `pdrf_exponent=16`), not those of `brook.DEFAULT_TEASAR_PARAMS`.
+[examples/quickstart.py](https://github.com/giorgioangel/brook/blob/v0.1.0/examples/quickstart.py)
+runs without a data file.
+
+Coordinates and radii are in the physical units given by `anisotropy`. C- and
+Fortran-ordered arrays are both accepted. `parallel` is accepted for compatibility
+and ignored; use `brook.GpuPool` for multiple GPUs. `brook.connect_points` takes
+`kimimaro.connect_points`'s arguments; as in Kimimaro 5.8.1, `fill_holes` and
+`in_place` are accepted and ignored. `brook.warmup()` initializes CUDA ahead of
+latency-sensitive work.
+
+## Differences from Kimimaro
+
+Brook returned the same objects (label IDs) as Kimimaro 5.8.1 on every tested volume. The
+geometry is close but not identical:
+
+- **Equal-cost routes.** Where routes have the same cost in float32, Brook takes straight
+  axial steps, while Kimimaro's heap order often alternates between slices; Brook's total
+  cable length was 0.5% to 7.9% shorter on the twelve benchmark datasets. Brook also
+  evaluates the PDRF term `dbf_max ** 1.01` in double precision.
+- **Somas.** Kimimaro's trimming distance uses uint32 subtraction and keeps vertices inside
+  the soma; Brook trims them and attaches each branch to the soma root, so a skeleton with a
+  soma is one connected tree.
+- **Hole filling.** Brook seeds the exterior flood from every background voxel on a
+  component's bounding-box faces; fill_voids, which Kimimaro uses, can also fill some
+  isolated voxels on those faces.
+- **Avocados.** With `fix_avocados`, Kimimaro can drop an extra target or raise `IndexError`
+  after its avocado stage renumbers the components; Brook assigns each target to the
+  component that contains it.
+- **Voxel graphs.** Kimimaro's invalidation can read other voxels' graph bits when its crop
+  does not span the volume's full x and y extent; Brook reads each voxel's own bits.
+- **Unreachable targets.** With branching correction, Brook stops tracing a component at the
+  first target that no path reaches; Kimimaro retries it until `max_paths`.
+- **connect_points.** With NumPy 2.4, Kimimaro 5.8.1 raises a casting error at its last step;
+  Brook returns the scaled path, in physical coordinates.
+- **postprocess and join_close_components.** These match Kimimaro when pykdtree is installed
+  (Kimimaro's `accel` extra). With SciPy's KD-tree, Kimimaro can join a different pair of
+  vertices when two pairs are the same distance apart.
+
+## GPU input and output
+
+`skeletonize` also accepts arrays that expose the CUDA array interface (CuPy,
+PyTorch CUDA tensors). A Fortran-contiguous array is read in place; other layouts
+are copied on the device. Pass the producer's stream as `stream=` (for example
+`torch.cuda.current_stream().cuda_stream`) and Brook waits for it before reading.
+An array that exposes only DLPack is read on the host when it is in host memory and
+otherwise raises `TypeError` (convert it with `cupy.from_dlpack` or `torch.from_dlpack`).
+`object_ids`, streaming and floating-point labels need host input. With host labels,
+`voxel_graph` must be an array NumPy can read; pass a device graph with device labels.
+
+```python
+packed = brook.skeletonize(labels, output="packed_device", progress=False)
+
+from brook.device_post import postprocess
+packed = postprocess(packed, dust_threshold=1000, tick_threshold=3500)
+
+vertices = packed.vertices.get()   # copy to NumPy when needed
+skeletons = packed.to_skeletons()  # or build osteoid skeletons
+```
+
+`output="packed"` returns packed host arrays. Device result arrays support the CUDA
+array interface and DLPack, so CuPy or PyTorch can use them without a copy. GPU
+postprocessing covers dust and tick removal, loop removal and joining nearby
+components.
+
+## Batches
+
+```python
+result = brook.skeletonize_batch(samples, anisotropy=(4, 4, 4), dust_threshold=400)
+skeletons = result[3].to_skeletons()  # sample 3, as {label: osteoid.Skeleton}
+vertices = result.vertices            # all samples, packed on the GPU
+```
+
+`samples` is a list of volumes (host or device, shapes may differ) or a dense array
+with the samples along its first axis. Each sample's result is the same as calling
+`skeletonize` on it alone. Samples of one shape can share preprocessing, and the batch
+traces its samples together, which is usually faster than separate calls but uses more
+GPU memory. `extra_targets_before`, `extra_targets_after` and `voxel_graph` take one
+entry per sample; anisotropy and points follow each sample's axis order, as in
+`skeletonize`.
+
+## PyTorch
+
+`brook.contrib.torch` wraps both calls for CUDA tensors (PyTorch is not a
+dependency). Results are torch tensors on the same device, and the stream defaults
+to the current CUDA stream. Skeletonization has no gradient.
+
+```python
+from brook.contrib import torch as bt
+
+skeletonize = bt.Skeletonize(anisotropy=(4, 4, 4), dust_threshold=400)
+result = skeletonize(label_batch)  # 4-D CUDA tensor, samples along the first axis
+dense = bt.padded(result)          # vertices, radii, labels, mask as dense tensors
+```
+
+## Large volumes
+
+When a volume does not fit in GPU memory, Brook streams connected components and
+distance transforms through the GPU in slabs; `streaming=True` or `False` selects
+the mode explicitly. Each object's tracing workspace must still fit on the GPU, and
+streaming does not support `voxel_graph`, `fill_holes` or `fix_avocados`.
+
+Alternatively, process overlapping chunks, optionally across several GPUs:
+
+```python
+if __name__ == "__main__":
+    skeletons = brook.skeletonize_chunked(
+        labels,
+        chunk_shape=(512, 512, 512),
+        anisotropy=(16, 16, 40),
+        postprocess={"dust_threshold": 1000, "tick_threshold": 3500},
+    )
+```
+
+Chunking and streaming handle object boundaries differently. Scaling of
+`skeletonize_chunked` across GPUs has not been measured.
+
+## Igneous
+
+With the `igneous` extra, existing Igneous skeleton tasks can run on Brook. The integration
+is experimental and may change in later releases.
+
+```python
+from brook.contrib import igneous
+
+with igneous.engine(postprocess="device"):
+    task.execute()  # an existing Igneous SkeletonTask
+```
+
+## Build from source
+
+You need Python 3.12 or newer, CMake 3.24+, a C++17 compiler and the NVIDIA CUDA
+Toolkit 12.3 or newer.
+`CMAKE_CUDA_ARCHITECTURES` or the `CUDAARCHS` environment variable select the target
+GPUs (`89` is an NVIDIA RTX 4090, `90` an NVIDIA H100); without either, CMake targets the
+build machine's GPU.
+
+```sh
+git clone https://github.com/giorgioangel/brook.git
+cd brook
+python -m pip install build
+python -m build --wheel -Ccmake.define.CMAKE_CUDA_ARCHITECTURES=89
+python -m pip install dist/brook-*.whl
+```
+
+A source build installs the distribution `brook`, which is also the name of the
+unrelated PyPI project: `pip install -U brook` would replace it with that project.
+
+`CMAKE_CUDA_ARCHITECTURES` takes a list, such as
+`"80-real;86-real;89-real;90-real;100-real;120-real;80-virtual;120-virtual"` (the
+release wheels). A `-real` entry adds machine code for that architecture, a `-virtual`
+entry adds PTX, and a plain number adds both. A GPU without matching machine code
+compiles the PTX on its first use of Brook (the driver caches the result), which needs
+a driver at least as new as the build's CUDA toolkit. Architectures below 80 are
+rejected when CMake configures the build. Machine code for a GPU needs a toolkit that
+supports it (CUDA 12.3 to 12.6 stop at compute capability 9.0; 10.0 and 12.0 need
+CUDA 12.8 or newer). A build made with CUDA 13 needs a driver that supports CUDA 13.0
+or newer (R580+).
+
+To use a system CUDA runtime instead of the bundled one, build with
+`-Ccmake.define.BROOK_BUNDLE_CUDA_RUNTIME=OFF` (Python) or
+`-DBROOK_BUNDLE_CUDA_RUNTIME=OFF` (SDK). Package managers that supply the CUDA runtime,
+such as conda-forge, build with `-DBROOK_BUNDLE_CUDA_RUNTIME=OFF`.
+
+## Startup check
+
+Before it first uses a GPU, Brook checks its compute capability, the driver version
+and whether the build has GPU code the driver can load. On an unsupported setup it
+raises `brook.device.CudaError` (a `RuntimeError`) that names the problem and the
+fix, for example:
+
+```text
+This Brook build has no GPU code for CUDA device 0 (NVIDIA H100 80GB HBM3, compute capability 9.0): it contains SASS for sm_89 and no PTX. Build Brook for this GPU with CMAKE_CUDA_ARCHITECTURES=90 (pip: --config-settings=cmake.define.CMAKE_CUDA_ARCHITECTURES=90) or native. [cudaErrorNoKernelImageForDevice: no kernel image is available for execution on the device]
+```
+
+`brook.device.require_gpu()` runs the check explicitly, and `brook.device.build_info()`
+lists the build's SASS and PTX architectures and the CUDA toolkit, runtime and driver
+versions.
+
+## C and C++
+
+```sh
+cmake -S . -B build/sdk -DBROOK_BUILD_PYTHON=OFF \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=89
+cmake --build build/sdk -j4
+cmake --install build/sdk --prefix /your/sdk/prefix --component SDK
+```
+
+Include `brook/brook.h` (C) or `brook/brook.hpp` (C++). CMake projects use
+`find_package(Brook CONFIG REQUIRED)` and link `Brook::brook`; pkg-config uses
+`brook`. See the [C/C++ SDK documentation](https://github.com/giorgioangel/brook/blob/v0.1.0/cpp/README.md).
+
+## API stability
+
+The stable surface is `brook.__all__`, `brook.device`, `brook.device_post` and
+`brook.contrib.torch`. `brook.contrib.igneous` is experimental, and other modules are lower
+level; both may change within 0.x. CUDA errors, including a failed startup check, raise
+`brook.device.CudaError` (a `RuntimeError`).
+
+## Environment variables
+
+| Variable | Effect |
+| :--- | :--- |
+| `BROOK_STREAMING` | `1` or `0` turns streaming on or off for calls with `streaming=None` (the default). |
+| `BROOK_STREAM_BUDGET_MB` | GPU memory budget of streamed calls, a positive integer number of MiB; any other value raises `ValueError`. Unset: a quarter of free GPU memory, at least 64 MiB. |
+| `BROOK_PROFILE` | `1` or `sync`: Python-side stage timers and NVTX ranges (`brook.profile`). |
+| `BROOK_GRAPHS` | `0` runs the CUDA-graph loops from the host, for Compute Sanitizer's racecheck and synccheck; same skeletons, slower. |
+
+Other `BROOK_*` variables are internal test and tuning switches; they are not part of
+the API and can change.
+
+## Testing
+
+Run `python -m pytest tests/python` against an installed wheel and
+`ctest --test-dir build/sdk --output-on-failure` for the C/C++ suite. GPU tests are
+skipped when no NVIDIA GPU is visible, and fail when the GPU, driver or build does
+not pass the startup check.
+
+For changes to CUDA code, also run Compute Sanitizer, one process at a time: memcheck and
+initcheck as they are, racecheck and synccheck with `BROOK_GRAPHS=0` (with CUDA graphs on,
+these two tools abort in the lockstep tracer because of a limitation of their own).
+
+---
+
+Source: https://github.com/giorgioangel/brook/blob/v0.1.0/cpp/README.md
+
+# Brook C/C++ SDK
+
+This directory contains the C++17/CUDA implementation and Python bindings.
+The C/C++ library does not require Python.
+
+## Build
+
+CUDA Toolkit 12.3 or newer and CMake 3.24 or newer are required. For a C/C++ build:
+
+```sh
+cmake -S . -B build/sdk -DBROOK_BUILD_PYTHON=OFF \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=89
+cmake --build build/sdk -j4
+ctest --test-dir build/sdk --output-on-failure
+cmake --install build/sdk --prefix /your/install/prefix --component SDK
+```
+
+Brook supports Linux x86-64 and needs an NVIDIA GPU of compute capability 8.0 or newer
+(Ampere or later); it is tested on an NVIDIA RTX 4090 (`sm_89`) and an NVIDIA H100
+(`sm_90`). There are no macOS builds, and Windows is untested.
+
+Set `CMAKE_CUDA_ARCHITECTURES` or the `CUDAARCHS` environment variable for the target
+GPUs, for example `89`, `90`, or the release list
+`"80-real;86-real;89-real;90-real;100-real;120-real;80-virtual;120-virtual"`; without
+either, the default is `native`, the build machine's GPU. Entries below 80 stop the
+configure step. `-virtual` entries embed PTX, which the driver compiles for a GPU without
+matching machine code; that needs a driver at least as new as the build's CUDA toolkit.
+The configure output lists the build's code as `Brook CUDA code: SASS [...], PTX [...]`.
+Building Python bindings additionally requires pybind11 and Python development headers;
+point CMake to that environment with `Python_EXECUTABLE` and `pybind11_DIR`.
+
+Creating a context (`brook_context_create`, `brook::api::Context`) runs the same startup
+check as the Python package. For an unsupported GPU, a driver older than the build needs
+(CUDA 12.3, or 13.0 for a CUDA 13 build), or a build without GPU code the driver can load,
+`brook_context_create` returns `BROOK_CUDA_ERROR` and `brook_last_error()` holds a message
+that names the problem and the fix; the C++ wrapper throws `std::runtime_error` with that
+message.
+
+Consumers can use `find_package(Brook CONFIG REQUIRED)` and link `Brook::brook`, or use
+`pkg-config brook`. C programs include `brook/brook.h`; C++ programs can use the move-only
+`brook::api::Context` and `brook::api::Skeletons` wrappers in `brook/brook.hpp`.
+See `tests/c_smoke.c` and `tests/cpp_smoke.cpp` for independently linked examples.
+
+The C ABI is provisional until the first stable ABI release. Calls are blocking. Inputs are
+borrowed for the call; results own their storage and may outlive the execution context.
+Calls through one context are serialized. Public calls restore the caller's CUDA device.
+
+Python device volumes come from `Context.upload`; contiguous tensor data such as
+vertices and edges use `Context.upload_tensor`. Device arrays expose `to_host()`/`get()`,
+CUDA array interface, `__dlpack__` and `__dlpack_device__`. DLPack supports zero-copy
+exports, requested GPU copies and CPU transfers. Exported owners can outlive both
+the original Python array and its context. Producers complete before returning.
+
+The C API's DLPack exports transfer one managed-tensor ownership reference to the
+consumer, which must invoke its deleter once. Include `brook/dlpack.h` to inspect
+the tensor fields. The C++ `Array::dlpack()` wrapper owns that reference until it
+is released or moved to the consumer. DLPack's upstream header, license and pinned
+source manifest are included in this SDK.
+
+The skeletonization options include `fill_holes` and `fix_avocados` in Python,
+and `BROOK_FILL_HOLES` / `BROOK_FIX_AVOCADOS` in the C/C++ flags. Avocado candidate
+detection uses the supplied soma detection threshold. Its compiled host logic invokes
+the GPU EDT when the detector records a merge. With a voxel graph, both options run on
+the graph's components, and that EDT is the graph EDT, as in Kimimaro.
+
+Point-to-point paths are available through `Context.connect_points` in the Python
+extension, `brook_connect_points` in C, and `brook::api::Context::connect_points`
+in C++. Inputs use nonzero foreground; vertices run from end to start, as in
+Kimimaro's `point_to_point`, and are physical coordinates. As in
+`kimimaro.connect_points`, the result does not depend on the input's memory layout.
+
+Host-resident EDT is available through Python `Context.edt_streamed`, C
+`brook_edt_streamed`, and C++ `Context::edt_streamed`. It runs full-length line
+transforms in bounded slabs/tiles and returns a host F-order float32 field.
+The caller can set a scheduling budget; input and output must not overlap.
+
+Streamed CCL is exposed as `Context.connected_components_streamed` in Python/C++,
+or `brook_connected_components_streamed` in C. Its host result owns F-order
+labels, original-label mapping and minimum-voxel roots, with exactly the in-core
+component numbering.
+
+`Context.skeletonize_streamed` / `brook_skeletonize_streamed` combine host-resident
+CCL/EDT with GPU crop tracing. The budget controls preamble slabs/tiles;
+each component workspace still needs to fit on the device. Voxel graphs,
+`fill_holes` and `fix_avocados` are not supported in this mode. Component
+targets are sorted on the GPU.
+
+Kimimaro-compatible oversegmentation is available through `Context.oversegment` in Python,
+`brook_oversegment` in C, and `brook::api::oversegment` / `Context::oversegment`
+in C++. It runs on the CPU; `fill_holes` uses the GPU.
+
+## Cross-sectional area helper
+
+`brook.cross_sectional_area` and `brook_cross_sectional_area` run on the CPU and need
+no CUDA context. The C++ wrapper is
+`brook::api::cross_sectional_area`; `tests/cross_section_smoke.cpp` is an independent
+consumer.
+
+This helper uses xs3d 1.13.0 (LGPL-3.0-or-later) through the separately replaceable
+`libbrook_xs3d.so.1`. SDK/Python installs include its authors, GPL/LGPL texts,
+complete corresponding source and standalone build recipe. See
+[replacement and distribution instructions](https://github.com/giorgioangel/brook/blob/v0.1.0/cpp/third_party/xs3d/README.md).
+
+## Distribution
+
+The Python wheel installs the Python modules, the compiled binding, `libbrook`,
+the independently replaceable xs3d bridge and (by default) the matching unmodified
+CUDA runtime. Relative RUNPATH entries support relocation. The SDK offers
+`Brook::brook` through CMake and `brook` through pkg-config, with no CUDA compiler
+required for ordinary C/C++ consumers. Rebuilding the CUDA implementation itself
+requires the CUDA toolkit and a C++ compiler.
+
+Corresponding sources and notices are included in both distributions. See the
+[package build instructions](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#build-from-source), [differences from Kimimaro](https://github.com/giorgioangel/brook/blob/v0.1.0/docs/USAGE.md#differences-from-kimimaro)
+and [distribution notices](https://github.com/giorgioangel/brook/blob/v0.1.0/NOTICE). Brook contributions are GPL-3.0-only;
+incorporated components retain their respective license terms.

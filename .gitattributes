@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.png binary
+uv.lock linguist-generated=true
+# The project website, generated outside the repository and published as it is.
+site/** linguist-generated=true
+
+cpp/third_party/** linguist-vendored=true
+cpp/src/third_party/** linguist-vendored=true
+cpp/include/brook/dlpack.h linguist-vendored=true

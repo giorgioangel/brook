@@ -1,0 +1,51 @@
+Brook
+Copyright (C) 2026 Giorgio Angelotti
+
+Licensed under the GNU General Public License version 3 only (GPL-3.0-only); see LICENSE.
+Third-party components keep their own licenses. Their texts are in cpp/licenses (source),
+brook/licenses (Python package) and share/brook/licenses (C/C++ SDK).
+
+Incorporated or adapted code
+- Kimimaro 5.8.1, GPL-3.0-or-later: C++ translations in cpp/src/cpu_post.cpp and
+  cpp/src/cross_section.cpp; behaviour reproduced in avocado.cpp, connect_points.cu,
+  oversegment.cpp, oversegment.hpp and post_kernels.cuh. Kimimaro.txt, Kimimaro-AUTHORS.txt
+- osteoid 0.7.3, BSD-3-Clause: graph and transform conventions (cpu_post.cpp,
+  cpu_transform.hpp, oversegment.cpp, cross_section.cpp). Osteoid.txt
+- xs3d 1.13.0, LGPL-3.0-or-later, modified: cpp/third_party/xs3d, built as the separate
+  library libbrook_xs3d.so.1. xs3d/
+- pykdtree 1.4.3, LGPL-3.0-or-later, unmodified: cpp/src/third_party/pykdtree_core.c.
+  PyKDTree.txt
+- CPython 3.12.3, PSF-2.0: set and tuple hashing and probing rules for integer keys,
+  reimplemented in C++ (integer_set.hpp, point_set.hpp, cpu_pair_set.hpp). CPython.txt
+- NumPy 2.4.6, BSD-3-Clause: pairwise summation order (post.cu, cpu_post.cpp). NumPy.txt
+- OpenBLAS 0.3.31, BSD-3-Clause: GETF2 update order (cpu_transform.hpp).
+  OpenBLAS.txt, OpenBLAS-getf2.txt
+- DLPack 1.2, Apache-2.0, unmodified: cpp/include/brook/dlpack.h. DLPack.txt
+
+Compiled into the binaries
+- CUDA C++ Core Libraries (CCCL) from the CUDA Toolkit: CUB (BSD-3-Clause), Thrust
+  (Apache-2.0) and libcu++ (Apache-2.0 WITH LLVM-exception). CCCL.txt
+- pybind11, BSD-3-Clause, in brook._core. pybind11.txt
+
+Other files in the license directories
+- GPL-3.0.txt: the GNU GPL text that the LGPL-3.0 components (xs3d, pykdtree) refer to.
+- CCCL-source.json, DLPack-source.json, pybind11-source.json: the upstream repository,
+  tag, revision and SHA-256 of the vendored files and license texts.
+
+NVIDIA CUDA runtime
+Python wheels, and SDK builds with BROOK_BUNDLE_CUDA_RUNTIME=ON, include an unmodified copy
+of the NVIDIA CUDA runtime (libcudart). It is proprietary NVIDIA software, licensed under
+the NVIDIA CUDA Toolkit End User License Agreement shipped as
+licenses/nvidia/CUDA-EULA.txt, and is not covered by the GPL. The runtime is part of the
+CUDA Toolkit, the compiler Brook is built with. Brook uses it, and the NVIDIA driver (not
+bundled), as System Libraries in the sense of section 1 of the GPL.
+
+Corresponding source
+The complete build sources are in brook/_source in the Python package and in
+share/brook/source in the SDK. The xs3d bridge is a separate, replaceable shared library,
+with its corresponding source and a standalone CMake build in brook/_third_party/xs3d or
+share/brook/xs3d-source. No loader checksum prevents replacing it with an
+interface-compatible modified library.
+
+Standard C/C++ system libraries come from the host operating system or the package
+environment.

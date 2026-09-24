@@ -1,0 +1,8 @@
+{
+  "repository": "https://github.com/NVIDIA/cccl",
+  "tag": "v2.7.0",
+  "revision": "b5fe509fd11a925f90d6495176707cc1184eed9d",
+  "sha256": {
+    "LICENSE": "01b767dcd7d36f42efb608076741cf83f154a995e198028cb698aadc3a43b63b"
+  }
+}
