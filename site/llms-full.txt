@@ -15,8 +15,12 @@ Source: https://github.com/giorgioangel/brook/blob/v0.1.0/README.md
 <p align="center"><strong>TEASAR skeletonization of 3D label volumes on NVIDIA GPUs</strong></p>
 
 <p align="center">
+  <a href="https://pypi.org/project/brook-cu12/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/brook-cu12"></a>
+  <a href="https://pypi.org/project/brook-cu12/"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/brook-cu12"></a>
+  <a href="https://github.com/giorgioangel/brook/releases"><img alt="GitHub release" src="https://img.shields.io/github/v/release/giorgioangel/brook"></a>
+  <a href="https://github.com/giorgioangel/brook/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/giorgioangel/brook/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://doi.org/10.5281/zenodo.22947047"><img alt="DOI 10.5281/zenodo.22947047" src="https://zenodo.org/badge/DOI/10.5281/zenodo.22947047.svg"></a>
   <a href="https://github.com/giorgioangel/brook/blob/v0.1.0/LICENSE"><img alt="License: GPL-3.0-only" src="https://img.shields.io/badge/license-GPL--3.0--only-blue"></a>
-  <img alt="Python 3.12 | 3.13 | 3.14" src="https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-3776AB?logo=python&amp;logoColor=white">
   <img alt="CUDA 12.3+" src="https://img.shields.io/badge/CUDA-12.3%2B-76B900?logo=nvidia&amp;logoColor=white">
   <img alt="Platform: Linux x86-64" src="https://img.shields.io/badge/platform-Linux%20x86--64-lightgrey?logo=linux&amp;logoColor=white">
   <img alt="NVIDIA GPU: compute capability 8.0+ (Ampere or newer)" src="https://img.shields.io/badge/NVIDIA%20GPU-CC%208.0%2B%20(Ampere%20or%20newer)-76B900?logo=nvidia&amp;logoColor=white">
@@ -182,8 +186,13 @@ If you use Brook in your work, please cite it (GitHub's "Cite this repository" b
   year = {2026},
   license = {GPL-3.0-only},
   url = {https://github.com/giorgioangel/brook},
+  doi = {10.5281/zenodo.22947047},
 }
 ```
+
+The DOI [10.5281/zenodo.22947047](https://doi.org/10.5281/zenodo.22947047) always resolves to the latest
+release; version 0.1.0 alone is
+[10.5281/zenodo.22947048](https://doi.org/10.5281/zenodo.22947048).
 
 Brook implements the TEASAR algorithm [1] as Kimimaro does [2]:
 

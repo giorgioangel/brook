@@ -40,6 +40,7 @@ Benchmarks (NVIDIA RTX 4090, Intel Core i9-14900KF; complete calls, NumPy labels
 - [C/C++ SDK](https://github.com/giorgioangel/brook/blob/v0.1.0/cpp/README.md): C and C++ API, CMake and pkg-config
 - [Changelog](https://github.com/giorgioangel/brook/blob/v0.1.0/CHANGELOG.md)
 - [Citation](https://github.com/giorgioangel/brook/blob/v0.1.0/CITATION.cff)
+- DOI 10.5281/zenodo.22947047 (resolves to the latest release)
 
 ## Optional
 

@@ -19,8 +19,8 @@ date-released: "2026-09-24"
 license: GPL-3.0-only
 repository-code: "https://github.com/giorgioangel/brook"
 url: "https://giorgioangel.github.io/brook/"
-# After the first release, add the Zenodo concept DOI (a tagged file cannot hold its own version DOI):
-# doi: "10.5281/zenodo.NNNNNNN"
+# Zenodo concept DOI: it resolves to the latest release (10.5281/zenodo.22947048 is version 0.1.0).
+doi: "10.5281/zenodo.22947047"
 keywords:
   - skeletonization
   - TEASAR
