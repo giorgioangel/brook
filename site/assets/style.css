@@ -141,7 +141,8 @@ td.numeric{font-family:var(--mono)}
   .fig-compact{display:block}
   .beat{padding-top:2.5rem;margin-top:2rem}
   .beat-head{margin-bottom:1rem}
-  .nav-links{display:none}
+  .nav-links{margin-left:auto}
+  .nav-links a[href^="#"]{display:none}
   .site-nav{gap:.75rem}
   pre{font-size:.76rem;padding:.9rem 1rem}
   .site-footer{flex-direction:column}
