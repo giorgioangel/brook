@@ -26,6 +26,9 @@
   <a href="https://github.com/giorgioangel/brook/blob/v0.1.0/CHANGELOG.md">Changelog</a>
 </p>
 
+> [!IMPORTANT]
+> Brook is now the GPU backend for [Seung Lab's Kimimaro 5.9.0](https://github.com/seung-lab/kimimaro) (Princeton Neuroscience Institute)!
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/giorgioangel/brook/v0.1.0/site/assets/figures/hero-D.svg" width="760" alt="TEASAR on CPU cores traces one path of one object at a time. On the NVIDIA GPU, Brook traces the next path of many objects at once, in a loop that runs as one CUDA graph; each path stops at first contact with the skeleton, and long objects draft several paths in parallel.">
   <br>
